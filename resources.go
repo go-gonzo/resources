@@ -22,26 +22,10 @@ var FilenameFormat = "%s_resource.go"
 func Build(config Config) gonzo.Stage {
 	return func(ctx context.Context, in <-chan gonzo.File, out chan<- gonzo.File) error {
 
-		res := resources.New()
-		res.Config = resources.Config(config)
-
-		for {
-			select {
-			case file, ok := <-in:
-				if !ok {
-					break
-				}
-				path, _ := filepath.Rel(file.FileInfo().Base(), file.FileInfo().Name())
-				res.Add(filepath.ToSlash(path), file)
-				ctx.Infof("Adding %s.\n", path)
-				defer file.Close() //Close files AFTER we have build our package.
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-		}
+		res, err := build(ctx, in, config)
 
 		var buff *bytes.Buffer
-		err := res.Build(buff)
+		err = res.Build(buff)
 		if err != nil {
 			return err
 		}
@@ -52,5 +36,25 @@ func Build(config Config) gonzo.Stage {
 		sf.FileInfo().SetSize(int64(buff.Len()))
 		out <- sf
 		return nil
+	}
+}
+
+func build(ctx context.Context, files <-chan gonzo.File, config Config) (*resources.Package, error) {
+
+	res := resources.New()
+	res.Config = resources.Config(config)
+	for {
+		select {
+		case file, ok := <-files:
+			if !ok {
+				return res, nil
+			}
+			path, _ := filepath.Rel(file.FileInfo().Base(), file.FileInfo().Name())
+			res.Add(filepath.ToSlash(path), file)
+			ctx.Infof("Adding %s.\n", path)
+			defer file.Close() //Close files AFTER we have build our package.
+		case <-ctx.Done():
+			return res, ctx.Err()
+		}
 	}
 }
